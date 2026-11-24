@@ -6,6 +6,7 @@ API con NestJS, TypeORM y PostgreSQL. Permite registrar usuarios, iniciar y cerr
 
 Necesitas Node.js (en clase se está usando la versión 26), npm y Docker Desktop abierto. En VS Code abre la carpeta que contiene `package.json` y `compose.yaml`. **Todos los comandos de esta guía se ejecutan desde esa carpeta.**
 
+
 ```bash
 cd ~/Desktop/preparcial-usuarios-roles
 ```
