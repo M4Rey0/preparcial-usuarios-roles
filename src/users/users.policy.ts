@@ -18,7 +18,7 @@ export class UsersPolicy implements PolicyBefore<User> {
   }
 
   assignRoles(_user: User | null): boolean {
-    // Profesor y estudiante no pueden asignar roles; solo admin pasa por before().
+
     return false;
   }
 }
