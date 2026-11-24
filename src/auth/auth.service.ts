@@ -94,8 +94,18 @@ export class AuthService {
     }
 
     // Genera el access token y el refresh token.
-    return this.tokenService.issue(usuario.id, {
+        return this.tokenService.issue(usuario.id, {
       method: 'password',
     });
+  }
+
+  // Entrega nuevos tokens e invalida el refresh token utilizado.
+  refresh(refreshToken: string) {
+    return this.tokenService.refresh(refreshToken);
+  }
+
+  // Invalida los refresh tokens de esa sesión.
+  async logout(refreshToken: string): Promise<void> {
+    await this.tokenService.revoke(refreshToken);
   }
 }
