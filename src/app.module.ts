@@ -1,10 +1,8 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
-import {
-  AuthenticationModule,
-  type Duration,
-} from '@nestjs/authentication';
+import { AuthorizationModule } from '@nestjs/authorization';
+import { AuthenticationModule, type Duration } from '@nestjs/authentication';
 
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
@@ -15,13 +13,21 @@ import { Role } from './roles/role.entity';
 import { AuthController } from './auth/auth.controller';
 import { AuthService } from './auth/auth.service';
 import { JwtAuthProvider } from './auth/jwt-auth.provider';
+import { RolesController } from './roles/roles.controller';
+import { RolesService } from './roles/roles.service';
+import { RolesPolicy } from './roles/roles.policy';
+import { UsersController } from './users/users.controller';
+import { UsersService } from './users/users.service';
+import { UsersPolicy } from './users/users.policy';
 
 @Module({
   imports: [
+    // Lee .env y permite consultar sus valores desde otros archivos.
     ConfigModule.forRoot({
       isGlobal: true,
     }),
 
+    // Conecta Nest con PostgreSQL. Las tablas las crean los archivos SQL.
     TypeOrmModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService) => ({
@@ -36,6 +42,7 @@ import { JwtAuthProvider } from './auth/jwt-auth.provider';
       }),
     }),
 
+    // Hace disponibles los repositorios para consultar y guardar usuarios y roles.
     TypeOrmModule.forFeature([User, Role]),
 
     // Configuración de autenticación y duración de los tokens.
@@ -49,11 +56,28 @@ import { JwtAuthProvider } from './auth/jwt-auth.provider';
         refreshToken: {
           ttl: config.getOrThrow<Duration>('JWT_REFRESH_EXPIRES_IN'),
         },
+        // Los refresh tokens se pierden al reiniciar la API; los usuarios no.
         allowInMemoryStorage: true,
       }),
     }),
+
+    // Primero se identifica al usuario; después se revisan sus permisos.
+    AuthorizationModule.forRoot(),
   ],
-  controllers: [AppController, AuthController],
-  providers: [AppService, AuthService, JwtAuthProvider],
+  controllers: [
+    AppController,
+    AuthController,
+    RolesController,
+    UsersController,
+  ],
+  providers: [
+    AppService,
+    AuthService,
+    JwtAuthProvider,
+    RolesService,
+    UsersService,
+    RolesPolicy,
+    UsersPolicy,
+  ],
 })
 export class AppModule {}

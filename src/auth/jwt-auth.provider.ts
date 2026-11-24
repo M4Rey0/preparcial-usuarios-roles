@@ -16,6 +16,7 @@ export class JwtAuthProvider extends JwtBearerProvider<User> {
     private readonly usersRepository: Repository<User>,
     registry: AuthenticationRegistry,
   ) {
+    // La firma y la expiración se verifican con la configuración de AuthenticationModule.
     super();
 
     // Registra este proveedor para comprobar los tokens recibidos.
@@ -28,7 +29,10 @@ export class JwtAuthProvider extends JwtBearerProvider<User> {
       return null;
     }
 
-    // Consulta al usuario activo y sus roles actuales.
+    // Autenticar: encontrar al usuario activo del token.
+    // Autorizar: las policies usarán sus roles para decidir qué rutas puede ejecutar.
+    // Se leen los roles actuales de la BD en cada petición: no quedan congelados en el JWT.
+    // password permanece oculto porque su columna tiene select: false.
     return this.usersRepository.findOne({
       where: {
         id: sub,

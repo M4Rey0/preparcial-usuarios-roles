@@ -7,6 +7,7 @@ import {
   MinLength,
 } from 'class-validator';
 
+// Define los datos permitidos al registrarse. Los roles se asignan por otra ruta.
 export class RegisterDto {
   @IsEmail({}, { message: 'Email inválido' })
   email!: string;

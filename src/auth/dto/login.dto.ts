@@ -1,10 +1,6 @@
-import {
-  IsEmail,
-  IsNotEmpty,
-  IsString,
-  MaxLength,
-} from 'class-validator';
+import { IsEmail, IsNotEmpty, IsString, MaxLength } from 'class-validator';
 
+// El DTO comprueba el formato; AuthService verifica las credenciales.
 export class LoginDto {
   @IsEmail({}, { message: 'Email inválido' })
   email!: string;

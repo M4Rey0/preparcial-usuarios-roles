@@ -5,10 +5,7 @@ import {
   Injectable,
   UnauthorizedException,
 } from '@nestjs/common';
-import {
-  PasswordHasher,
-  TokenService,
-} from '@nestjs/authentication';
+import { PasswordHasher, TokenService } from '@nestjs/authentication';
 import { InjectRepository } from '@nestjs/typeorm';
 import { QueryFailedError, Repository } from 'typeorm';
 
@@ -18,6 +15,7 @@ import { LoginDto } from './dto/login.dto';
 
 @Injectable()
 export class AuthService {
+  // Autenticar comprueba quién es el usuario. Las policies deciden qué puede hacer.
   constructor(
     @InjectRepository(User)
     private readonly usersRepository: Repository<User>,
@@ -26,6 +24,7 @@ export class AuthService {
   ) {}
 
   async register(datos: RegisterDto) {
+    // PasswordHasher usa scrypt: guardamos el hash, nunca la contraseña original.
     const passwordHash = await this.passwordHasher.hash(datos.password);
 
     const usuario = this.usersRepository.create({
@@ -34,12 +33,14 @@ export class AuthService {
       name: datos.name.trim(),
       phone: datos.phone,
       is_active: true,
+      // El registro público no concede roles; esa tarea corresponde a un admin.
       roles: [],
     });
 
     try {
       const usuarioGuardado = await this.usersRepository.save(usuario);
 
+      // No devolvemos la entidad guardada porque todavía contiene el hash.
       return {
         message: 'Usuario registrado con éxito',
         userId: usuarioGuardado.id,
@@ -51,6 +52,7 @@ export class AuthService {
           constraint?: string;
         };
 
+        // La restricción de PostgreSQL evita duplicados incluso con registros simultáneos.
         if (
           errorBD.code === '23505' &&
           errorBD.constraint === 'users_email_key'
@@ -64,7 +66,7 @@ export class AuthService {
   }
 
   async login(datos: LoginDto) {
-    // Para iniciar sesión necesitamos consultar también el hash.
+    // select: false oculta password en consultas normales; aquí lo necesitamos.
     const usuario = await this.usersRepository.findOne({
       where: {
         email: datos.email.trim().toLowerCase(),
@@ -76,7 +78,8 @@ export class AuthService {
       },
     });
 
-    // Compara la contraseña recibida con el hash guardado.
+    // También se verifica cuando no hay usuario: el paquete usa un hash de prueba.
+    // Así no rechazamos un email inexistente antes de hacer el trabajo del hash.
     const passwordCorrecta = await this.passwordHasher.verify(
       datos.password,
       usuario?.password,
@@ -87,25 +90,26 @@ export class AuthService {
     }
 
     if (!usuario.is_active) {
-      throw new HttpException(
-        'Usuario desactivado',
-        HttpStatus.LOCKED,
-      );
+      throw new HttpException('Usuario desactivado', HttpStatus.LOCKED);
     }
 
-    // Genera el access token y el refresh token.
-        return this.tokenService.issue(usuario.id, {
+    // El paquete escribe el ID en sub y usa las duraciones configuradas en .env.
+    // Los roles se consultan en la BD al usar el token, para mantenerlos actualizados.
+    return this.tokenService.issue(usuario.id, {
       method: 'password',
     });
   }
 
-  // Entrega nuevos tokens e invalida el refresh token utilizado.
+  // Entrega nuevos tokens y consume el refresh token anterior.
+  // Si se reutiliza uno ya consumido, el paquete revoca toda su familia.
   refresh(refreshToken: string) {
     return this.tokenService.refresh(refreshToken);
   }
 
-  // Invalida los refresh tokens de esa sesión.
+  // Revoca la familia de refresh tokens de esta sesión.
+  // El access token ya emitido sigue vigente hasta que expire.
   async logout(refreshToken: string): Promise<void> {
+    // Ignoramos el booleano: logout devuelve 204 aunque el token ya no exista.
     await this.tokenService.revoke(refreshToken);
   }
 }
