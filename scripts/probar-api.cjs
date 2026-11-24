@@ -203,14 +203,13 @@ async function comprobarRutasAdminDenegadas(token, usuarioId) {
 async function main() {
   console.log('Pruebas de las nueve rutas de usuarios y roles.');
   console.log(
-    'La API y PostgreSQL deben estar encendidos y los SQL de demostración aplicados.',
+    'La API y PostgreSQL deben estar encendidos; solo se necesita el administrador inicial.',
   );
   console.log('Se creará un usuario y un rol exclusivos de esta ejecución.\n');
 
   let usuarioId;
   let sesionUsuario;
   let sesionAdmin;
-  let sesionSupervisor;
   let sesionLogout;
 
   await prueba('Registro: crea el usuario (201)', async () => {
@@ -253,17 +252,6 @@ async function main() {
       mensaje: 'Credenciales incorrectas',
     }),
   );
-  await prueba(
-    'Login: rechaza la cuenta desactivada de demostración (423)',
-    () =>
-      peticion('POST', '/auth/login', 423, {
-        body: {
-          email: 'desactivado@example.com',
-          password: 'Inactivo2026!Prueba',
-        },
-        mensaje: 'Usuario desactivado',
-      }),
-  );
   await prueba('Perfil: exige un token (401)', () =>
     peticion('GET', '/users/me', 401),
   );
@@ -303,9 +291,8 @@ async function main() {
         );
       }
       comprobar(
-        roles.some((rol) => rol.role_name === 'admin') &&
-          roles.some((rol) => rol.role_name === 'supervisor'),
-        'Faltan los roles de demostración: aplica los SQL indicados en el README.',
+        roles.some((rol) => rol.role_name === 'admin'),
+        'Falta el rol obligatorio admin: ejecuta npm run db:preparar.',
       );
     },
   );
@@ -323,23 +310,6 @@ async function main() {
   await prueba(
     'Usuario sin roles: las cuatro rutas de admin responden 403',
     () => comprobarRutasAdminDenegadas(sesionUsuario.accessToken, usuarioId),
-  );
-  await prueba(
-    'Login del supervisor de demostración y comprobación de su rol (200)',
-    async () => {
-      sesionSupervisor = await iniciarSesion(
-        'estudiante.prueba@example.com',
-        'Estudio2026!Prueba',
-      );
-      const usuario = await peticion('GET', '/users/me', 200, {
-        token: sesionSupervisor.accessToken,
-      });
-      comprobarRoles(usuario, ['supervisor']);
-    },
-  );
-  await prueba(
-    'Supervisor: las cuatro rutas de admin también responden 403',
-    () => comprobarRutasAdminDenegadas(sesionSupervisor.accessToken, usuarioId),
   );
   await prueba('Admin: crea el rol de esta ejecución (201)', async () => {
     const datos = await peticion('POST', '/roles', 201, {
@@ -374,7 +344,7 @@ async function main() {
     async () => {
       const datos = await peticion('PATCH', `/users/${usuarioId}/roles`, 200, {
         token: sesionAdmin.accessToken,
-        body: { roles: ['supervisor', nombreRol] },
+        body: { roles: [nombreRol] },
       });
       comprobar(
         datos.message === 'Roles asignados',
@@ -388,7 +358,7 @@ async function main() {
       const usuario = await peticion('GET', '/users/me', 200, {
         token: sesionUsuario.accessToken,
       });
-      comprobarRoles(usuario, ['supervisor', nombreRol]);
+      comprobarRoles(usuario, [nombreRol]);
     },
   );
   await prueba(
@@ -402,7 +372,7 @@ async function main() {
       const usuario = await peticion('GET', '/users/me', 200, {
         token: sesionUsuario.accessToken,
       });
-      comprobarRoles(usuario, ['supervisor', nombreRol]);
+      comprobarRoles(usuario, [nombreRol]);
     },
   );
   await prueba('Asignar roles: rechaza nombres repetidos (400)', () =>
@@ -502,7 +472,7 @@ async function main() {
   );
 
   console.log(
-    `\nResultado: ${aprobadas}/33 comprobaciones aprobadas (${solicitudes} solicitudes HTTP).`,
+    `\nResultado: ${aprobadas} comprobaciones aprobadas (${solicitudes} solicitudes HTTP).`,
   );
   console.log(`Usuario creado, ahora sin roles: ${datosUsuario.email}`);
   console.log(`Rol creado: ${nombreRol}`);

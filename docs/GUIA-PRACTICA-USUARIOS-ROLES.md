@@ -1,99 +1,58 @@
-# Guía de examen — Usuarios, roles y permisos (NestJS)
+# Guía de consulta — Roles, usuarios y permisos (NestJS)
 
-Guía para el proyecto **`preparcial-usuarios-roles`**. Está basada en los archivos reales del proyecto: `migrations/001_crear_tablas.sql`, `migrations/002_crear_admin.sql`, `scripts/usuarios_roles_probados.sql`, `src/users/users.policy.ts`, `src/roles/roles.policy.ts`, los controladores y los DTO.
+Esta guía corresponde a la **versión original del preparcial** que incluye únicamente `admin` como rol inicial. El proyecto usa `@nestjs/authentication` y `@nestjs/authorization`, **sin Passport**.
 
-> **Regla de oro:** una **Entity** define una tabla; un **rol** es un registro dentro de `roles`; una **Policy** determina qué acciones autoriza ese rol. Crear un rol por sí solo **no crea permisos**.
->
-> Todos los comandos siguientes, salvo que diga otra cosa, se ejecutan en una terminal ubicada en la carpeta del proyecto.
+**Tres conceptos que no debes confundir:**
+
+- **Entidad:** clase TypeORM que representa una tabla; por ejemplo, `User` y `Role`.
+- **Rol:** fila de la tabla `roles` (por ejemplo `admin`, `estudiante`, `auditor`, `supervisor`). Crear el rol **NO crea una entidad nueva**.
+- **Permiso:** regla escrita en una *Policy*. Crear o asignar un rol **no concede por sí solo acceso** a rutas restringidas.
+
+## 1. Roles iniciales y matriz de permisos
+
+Después de preparar una base vacía, **solo existen el rol `admin` y el usuario `admin@example.com`**. Los roles `estudiante`, `auditor` y `supervisor` NO se crean automáticamente: son ejemplos para que practiques.
+
+| Ruta | Sin token | Usuario autenticado sin `admin` | `admin` |
+|---|---|---|---|
+| `POST /auth/register` | Sí | Sí | Sí |
+| `POST /auth/login` | Sí | Sí | Sí |
+| `POST /auth/refresh` | Con refreshToken válido | Con refreshToken válido | Con refreshToken válido |
+| `POST /auth/logout` | Con refreshToken válido | Con refreshToken válido | Con refreshToken válido |
+| `GET /users/me` | 401 | 200 | 200 |
+| `GET /users` | 401 | 403 | 200 |
+| `GET /roles` | 401 | 403 | 200 |
+| `POST /roles` | 401 | 403 | 201 si el body es válido |
+| `PATCH /users/:id/roles` | 401 | 403 | 200 si el body e ID son válidos |
+
+- **401:** no hay un access token válido.
+- **403:** sí hay usuario autenticado, pero su rol no le concede esa acción.
+- **201:** se creó un recurso. **204:** logout sin contenido.
+
+El administrador pasa las comprobaciones mediante el método `before()` en ambas Policies. Cualquier rol que crees después, **sin modificar las Policies**, solo podrá consultar su propio perfil.
+
+## 2. ¿Cómo se inicia sesión como admin o como otro rol?
+
+**No se inicia sesión en un rol. Se inicia sesión con la cuenta de un usuario y esa cuenta puede tener uno o varios roles.** Los roles se consultan en PostgreSQL cuando llega una petición protegida.
+
+Con Docker Desktop abierto, y desde la carpeta que contiene `package.json`:
 
 ```bash
-cd ~/Desktop/preparcial-usuarios-roles
-```
-
-## 1. Dejar la base completamente limpia: solo el rol y usuario admin
-
-**ATENCIÓN: ESTO BORRA PARA SIEMPRE TODOS LOS DATOS DE LA BASE LOCAL DE ESTE PROYECTO** (usuarios creados, asignaciones, `auditor`, `supervisor`, etc.). **No lo uses si deseas conservar esos datos.** No modifica tus archivos de código ni el `.env`. Comprueba que estás en la carpeta correcta.
-
-1. Detén NestJS con **Control + C** en la terminal donde corre `npm run start:dev`.
-2. Con Docker Desktop abierto, ejecuta:
-
-```bash
-# En preparcial-usuarios-roles (donde está compose.yaml)
-docker compose down -v
-```
-
-La opción **`-v` borra el volumen PostgreSQL** de este proyecto. NO uses `-v` para apagar una base que quieras conservar.
-
-3. Arranca PostgreSQL vacío:
-
-```bash
+npm ci
+npm run preparar:env
 docker compose up -d --wait
-```
-
-4. Aplica **solo** estas dos migraciones, en este orden:
-
-```bash
-docker compose exec -T db psql -U estudiante -d usuarios_roles -v ON_ERROR_STOP=1 < migrations/001_crear_tablas.sql
-```
-
-```bash
-docker compose exec -T db psql -U estudiante -d usuarios_roles -v ON_ERROR_STOP=1 < migrations/002_crear_admin.sql
-```
-
-5. Comprueba que hay **solo `admin` como rol**:
-
-```bash
-docker compose exec db psql -U estudiante -d usuarios_roles -c "SELECT id, role_name FROM roles ORDER BY role_name;"
-```
-
-6. Comprueba que hay **solo un usuario (admin)**:
-
-```bash
-docker compose exec db psql -U estudiante -d usuarios_roles -c "SELECT id, email, is_active FROM users ORDER BY email;"
-```
-
-7. Arranca NestJS:
-
-```bash
+npm run db:preparar
 npm run start:dev
 ```
 
-> **IMPORTANTE:** Después de esta limpieza **NO ejecutes `npm run db:preparar` si quieres conservar únicamente `admin`**, porque ese script también carga `supervisor`, `estudiante.prueba@example.com` y `desactivado@example.com`. Tampoco ejecutes automáticamente `npm run probar:api` suponiendo la base con solo admin: sus pruebas fueron diseñadas para la preparación completa. Si quieres volver a tener las cuentas de demostración, sí puedes usar `npm run db:preparar`.
+Abre **otra terminal** en esa misma carpeta para las peticiones `curl`.
 
-**Credencial conocida del admin después de esta limpieza:**
+Cuenta inicial de la **demostración local**:
 
-- Correo: `admin@example.com`
-- Contraseña de demostración: `Admin2026!ParaPrueba`
+| Usuario | Contraseña de práctica | Rol |
+|---|---|---|
+| `admin@example.com` | `Admin2026!ParaPrueba` | `admin` |
 
-Esta clave es **solo para pruebas locales**. No la utilices en una aplicación real o expuesta públicamente.
-
----
-
-## 2. Arranque normal en los siguientes días (SIN borrar datos)
-
-**Terminal A** (abre Docker Desktop antes):
-
-```bash
-cd ~/Desktop/preparcial-usuarios-roles
-docker compose up -d --wait
-npm run start:dev
-```
-
-**Terminal B** (para las llamadas HTTP):
-
-```bash
-cd ~/Desktop/preparcial-usuarios-roles
-```
-
-- NestJS: `http://localhost:3000/`
-- **No necesitas abrir la carpeta `src` para ejecutar los comandos.**
-- Para detener: Control + C para Nest y `docker compose stop` para PostgreSQL. `stop` conserva los datos.
-
----
-
-## 3. Iniciar sesión como admin y guardar el token en la terminal
-
-En **Terminal B**, copia el bloque completo:
+Para iniciar sesión como admin y guardar automáticamente el token en la terminal:
 
 ```bash
 ADMIN_TOKEN=$(curl -fsS -X POST http://localhost:3000/auth/login \
@@ -102,27 +61,25 @@ ADMIN_TOKEN=$(curl -fsS -X POST http://localhost:3000/auth/login \
   | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).accessToken")
 ```
 
-Comprueba que se guardó (sin mostrar ni copiar el token completo):
+Comprueba el token sin imprimirlo:
 
 ```bash
-test -n "$ADMIN_TOKEN" && echo 'Token admin guardado'
+test -n "$ADMIN_TOKEN" && echo 'Token del admin guardado'
 ```
 
-**Dura 2 minutos.** Si empiezas a obtener `401`, vuelve a ejecutar el bloque del login. Una variable guardada en Terminal B no aparece automáticamente en otra terminal.
+**Dura dos minutos.** Si recibes 401 por caducidad, repite el login y guarda un token nuevo. El token se guarda únicamente en esa terminal.
 
-Comprobar permiso de admin:
+Comprueba los permisos del admin:
 
 ```bash
-curl -i http://localhost:3000/roles -H "Authorization: Bearer $ADMIN_TOKEN"
+curl -i http://localhost:3000/users -H "Authorization: Bearer $ADMIN_TOKEN"
 ```
 
-Esperado: **200** y lista de roles.
+El usuario del rol `auditor` (o cualquier otro rol) **debe registrarse y recibir el rol** antes de que pueda iniciar sesión con ese rol.
 
----
+## 3. ¿Cómo se crea un usuario?
 
-## 4. Crear un usuario normal: `POST /auth/register`
-
-La ruta es pública: **no necesitas token**. Cambia correo y contraseña para nuevos ejemplos.
+El registro es público y **no asigna roles**:
 
 ```bash
 curl -i -X POST http://localhost:3000/auth/register \
@@ -130,66 +87,75 @@ curl -i -X POST http://localhost:3000/auth/register \
   -d '{"email":"alumno@example.com","password":"Alumno2026!","name":"Alumno de prueba"}'
 ```
 
-Esperado: **201** con `userId`. **Guarda el UUID** que devuelve.
-
-Para guardar su ID en una variable (reemplaza el texto por el UUID verdadero):
+Resultado esperado: `201` y `userId` (identificador UUID). Copia el ID real:
 
 ```bash
-USER_ID='PEGA_AQUI_EL_USER_ID'
+USER_ID='PEGA_AQUI_EL_UUID_DEVUELTO'
 ```
 
-**Nota:** registrar una persona NO le asigna roles. El usuario recién registrado puede usar `GET /users/me`, pero no administrar usuarios ni roles.
+Comprueba que el usuario está activo e inicia sesión:
 
----
+```bash
+ALUMNO_TOKEN=$(curl -fsS -X POST http://localhost:3000/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"alumno@example.com","password":"Alumno2026!"}' \
+  | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).accessToken")
 
-## 5. Crear roles: `POST /roles`
+curl -i http://localhost:3000/users/me -H "Authorization: Bearer $ALUMNO_TOKEN"
+```
 
-**Requiere el token del admin.** Cada ejemplo se ejecuta una sola vez; si repites el mismo nombre responderá **409** (rol duplicado).
+El campo `roles` debe ser un arreglo vacío (`[]`) antes de asignarle roles.
 
-### Crear `estudiante`
+## 4. ¿Cómo se crea un rol nuevo?
+
+**La operación requiere iniciar sesión como admin.** Si el token expiró, repite el comando del apartado 2.
+
+Ejemplo para crear el rol `estudiante`:
 
 ```bash
 curl -i -X POST http://localhost:3000/roles \
   -H 'Content-Type: application/json' \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
-  -d '{"role_name":"estudiante","description":"Usuario estudiante"}'
+  -d '{"role_name":"estudiante","description":"Rol para estudiantes"}'
 ```
 
-### Crear `auditor`
+También puedes crear `auditor`:
 
 ```bash
 curl -i -X POST http://localhost:3000/roles \
   -H 'Content-Type: application/json' \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
-  -d '{"role_name":"auditor","description":"Puede consultar datos autorizados"}'
+  -d '{"role_name":"auditor","description":"Consulta datos autorizados"}'
 ```
 
-### Crear `supervisor`
+Y `supervisor`:
 
 ```bash
 curl -i -X POST http://localhost:3000/roles \
   -H 'Content-Type: application/json' \
   -H "Authorization: Bearer $ADMIN_TOKEN" \
-  -d '{"role_name":"supervisor","description":"Rol para pruebas"}'
+  -d '{"role_name":"supervisor","description":"Supervisa acciones autorizadas"}'
 ```
 
-Esperado para cada nuevo rol: **201**. Las letras de los nombres importan: usamos `auditor` en minúsculas en todo el ejercicio; `Auditor` sería un nombre diferente.
+**201:** rol nuevo creado. **409:** ya había un rol con ese nombre. **400:** cuerpo inválido. Los nombres son sensibles a mayúsculas: `Auditor` y `auditor` se consideran distintos.
 
-### Consultar roles: `GET /roles`
+Listar roles:
 
 ```bash
 curl -i http://localhost:3000/roles -H "Authorization: Bearer $ADMIN_TOKEN"
 ```
 
-Esperado **200** con `admin`, `estudiante`, `auditor` y `supervisor` (si los creaste).
+## 5. ¿Cómo se asigna un rol a un usuario?
 
----
+**Solo `admin` puede asignar roles** en la versión original.
 
-## 6. Asignar rol a un usuario: `PATCH /users/:id/roles`
+Copia el UUID devuelto por el registro:
 
-Usa **el `USER_ID` verdadero** del registro. La asignación requiere `admin`.
+```bash
+USER_ID='PEGA_AQUI_EL_UUID_DEVUELTO'
+```
 
-### Asignar un rol
+Asignar el rol `estudiante`:
 
 ```bash
 curl -i -X PATCH "http://localhost:3000/users/$USER_ID/roles" \
@@ -198,9 +164,7 @@ curl -i -X PATCH "http://localhost:3000/users/$USER_ID/roles" \
   -d '{"roles":["estudiante"]}'
 ```
 
-Esperado: **200** con `{"message":"Roles asignados"}`.
-
-### Reemplazar por auditor
+Cambiarlo por `auditor`:
 
 ```bash
 curl -i -X PATCH "http://localhost:3000/users/$USER_ID/roles" \
@@ -209,7 +173,7 @@ curl -i -X PATCH "http://localhost:3000/users/$USER_ID/roles" \
   -d '{"roles":["auditor"]}'
 ```
 
-### Asignar dos roles a la misma persona
+Asignar **dos** roles:
 
 ```bash
 curl -i -X PATCH "http://localhost:3000/users/$USER_ID/roles" \
@@ -218,7 +182,7 @@ curl -i -X PATCH "http://localhost:3000/users/$USER_ID/roles" \
   -d '{"roles":["estudiante","auditor"]}'
 ```
 
-### Quitar todos los roles
+Quitar todos los roles:
 
 ```bash
 curl -i -X PATCH "http://localhost:3000/users/$USER_ID/roles" \
@@ -227,116 +191,75 @@ curl -i -X PATCH "http://localhost:3000/users/$USER_ID/roles" \
   -d '{"roles":[]}'
 ```
 
-> **MUY IMPORTANTE:** `PATCH /users/:id/roles` **REEMPLAZA toda la lista de roles**, no agrega automáticamente los nuevos a los anteriores. Si el usuario tenía `estudiante` y envías `{"roles":["auditor"]}`, ya no tendrá `estudiante`.
+**IMPORTANTE:** `PATCH /users/:id/roles` **reemplaza toda la lista de roles**. No añade a la lista anterior de forma automática. Si se envía `['auditor']`, se retira cualquier rol que antes tuviera y no figure en la nueva lista.
 
----
-
-## 7. Ver los usuarios, sus roles y sus claves (lo que SÍ y NO puedes ver)
-
-### Desde la API (admin)
+Para ver que realmente tiene el rol, **inicia sesión con el correo y contraseña de ese usuario** (no con los del admin), o consulta su perfil con el token de antes:
 
 ```bash
-curl -i http://localhost:3000/users -H "Authorization: Bearer $ADMIN_TOKEN"
+curl -i http://localhost:3000/users/me -H "Authorization: Bearer $ALUMNO_TOKEN"
 ```
 
-Devuelve UUID, correo, nombre y roles. **No incluye el campo `password` por seguridad**.
+Los roles asignados se consultan en la base de datos, por lo que el perfil debería reflejar cambios incluso con un token anterior que aún esté vigente.
 
-### Desde PostgreSQL: listado completo de usuarios con roles
+## 6. ¿Cómo se le dan permisos al rol? (Policies)
 
-```bash
-docker compose exec db psql -U estudiante -d usuarios_roles -c "SELECT u.id, u.email, u.name, u.is_active, COALESCE(string_agg(r.role_name, ', ' ORDER BY r.role_name), '(sin rol)') AS roles FROM users u LEFT JOIN users_roles ur ON ur.user_id=u.id LEFT JOIN roles r ON r.id=ur.role_id GROUP BY u.id, u.email, u.name, u.is_active ORDER BY u.email;"
+**No existe una tabla de permisos en este preparcial.** Los roles se guardan en PostgreSQL, pero **sus capacidades se programan** en las Policies:
+
+- `src/users/users.policy.ts` — protege `GET /users` y `PATCH /users/:id/roles`.
+- `src/roles/roles.policy.ts` — protege `GET /roles` y `POST /roles`.
+
+Los controladores usan `@Can(UsersPolicy, 'list')`, `@Can(UsersPolicy, 'assignRoles')`, `@Can(RolesPolicy, 'list')` y `@Can(RolesPolicy, 'create')`. Esos nombres deben coincidir con los métodos de cada Policy.
+
+En la versión original, ambos `before()` contienen la condición:
+
+```typescript
+if (user?.roles?.some((role) => role.role_name === 'admin')) {
+  return true;
+}
+return undefined;
 ```
 
-### Desde PostgreSQL: listar nombres de roles
+Eso concede todos los permisos de las Policies al admin, aunque los demás métodos retornen `false`.
 
-```bash
-docker compose exec db psql -U estudiante -d usuarios_roles -c "SELECT role_name, description FROM roles ORDER BY role_name;"
-```
+**Ejercicio: permitir que `auditor` solo consulte usuarios y roles**, sin crear ni asignar:
 
-### Desde PostgreSQL: ver el *hash* almacenado, NO la contraseña original
+En `src/users/users.policy.ts`, cambia **únicamente** el método `list`:
 
-```bash
-docker compose exec db psql -U estudiante -d usuarios_roles -c "SELECT email, LEFT(password, 30) || '...' AS hash_parcial FROM users ORDER BY email;"
-```
-
-**No existe un comando para recuperar una contraseña en texto plano a partir del hash**. El sistema la guarda así deliberadamente. Si no recuerdas una contraseña de un usuario de prueba, puedes crear otro usuario o implementar una recuperación/cambio de contraseña.
-
-**Contraseñas documentadas de las cuentas de demostración (solo si fueron creadas):**
-
-| Correo | Contraseña conocida de demostración |
-|---|---|
-| `admin@example.com` | `Admin2026!ParaPrueba` |
-| `estudiante.prueba@example.com` | `Estudio2026!Prueba` |
-| `desactivado@example.com` | `Inactivo2026!Prueba` |
-| `alumno@example.com` (creado siguiendo esta guía) | `Alumno2026!` |
-
-**Después de la limpieza de la sección 1, de estas cuentas solo existe el administrador.** Las otras existen únicamente si las registras o ejecutas el cargador de datos de demostración.
-
----
-
-## 8. Iniciar sesión como usuario normal y comprobar su perfil
-
-Para el usuario del ejemplo:
-
-```bash
-USER_TOKEN=$(curl -fsS -X POST http://localhost:3000/auth/login \
-  -H 'Content-Type: application/json' \
-  -d '{"email":"alumno@example.com","password":"Alumno2026!"}' \
-  | node -p "JSON.parse(require('fs').readFileSync(0, 'utf8')).accessToken")
-```
-
-```bash
-curl -i http://localhost:3000/users/me -H "Authorization: Bearer $USER_TOKEN"
-```
-
-Esperado: **200** con su `id`, `email`, `name`, `phone` y los roles actuales.
-
-Intentar listar usuarios si el usuario **no tiene el permiso**:
-
-```bash
-curl -i http://localhost:3000/users -H "Authorization: Bearer $USER_TOKEN"
-```
-
-Esperado: **403**, siempre que las Policies no lo autoricen.
-
----
-
-## 9. Dar permisos a `auditor` (CAMBIO EN EL CÓDIGO)
-
-**Crear el rol en la tabla NO concede permisos por sí solo.** La autorización está definida en dos archivos del proyecto:
-
-- `src/users/users.policy.ts`
-- `src/roles/roles.policy.ts`
-
-Los controladores llaman a las Policies con `@Can(UsersPolicy, 'list')`, `@Can(UsersPolicy, 'assignRoles')`, `@Can(RolesPolicy, 'list')` o `@Can(RolesPolicy, 'create')`.
-
-### Ejercicio: `auditor` puede VER usuarios y roles, pero NO crear ni asignar
-
-En **`src/users/users.policy.ts`**, modifica solamente `list()` para que quede:
-
-```ts
+```typescript
 list(user: User | null): boolean {
-  return user?.roles?.some((role) => role.role_name === 'auditor') ?? false;
+  return user?.roles?.some((rol) => rol.role_name === 'auditor') ?? false;
 }
 ```
 
-No cambies `assignRoles()`: debe seguir devolviendo `false` para los no administradores.
+Deja intacto `assignRoles()`:
 
-En **`src/roles/roles.policy.ts`**, modifica solamente `list()`:
-
-```ts
-list(user: User | null): boolean {
-  return user?.roles?.some((role) => role.role_name === 'auditor') ?? false;
+```typescript
+assignRoles(_user: User | null): boolean {
+  return false;
 }
 ```
 
-No cambies `create()`: debe continuar devolviendo `false` para usuarios sin `admin`.
+En `src/roles/roles.policy.ts`, cambia **únicamente** el método `list`:
 
-**Conserva el método `before()` original en ambas Policies.** Ese método permite todos los permisos a quien tiene `admin`.
+```typescript
+list(user: User | null): boolean {
+  return user?.roles?.some((rol) => rol.role_name === 'auditor') ?? false;
+}
+```
 
-Luego inicia sesión de nuevo como `alumno@example.com` para renovar el token y prueba:
+Deja `create()` así:
 
-| Operación usando token del auditor | Código esperado |
+```typescript
+create(_user: User | null): boolean {
+  return false;
+}
+```
+
+**No cambies `before()`.** El admin debe mantener sus permisos.
+
+La matriz resultante para `auditor` sería:
+
+| Ruta | `auditor` después de modificar las dos Policies |
 |---|---|
 | `GET /users/me` | 200 |
 | `GET /users` | 200 |
@@ -344,38 +267,66 @@ Luego inicia sesión de nuevo como `alumno@example.com` para renovar el token y 
 | `POST /roles` | 403 |
 | `PATCH /users/:id/roles` | 403 |
 
-Si el servidor está en modo `start:dev`, recarga los cambios automáticamente. **Recuerda que el token vence a los dos minutos**: ante un `401` genera otro token antes de sospechar de la Policy.
+Luego guarda y deja que `npm run start:dev` recargue. Inicia sesión como el usuario auditor y prueba esas cinco peticiones con **su token**, no con el del admin.
 
-Para dar esos mismos permisos también al rol `supervisor`, cambia la condición por:
+**Para otros ejercicios:** cambia `role_name === 'auditor'` por el rol y método solicitados. Si quieres permitir `auditor` *y* `supervisor`, compara ambos nombres, por ejemplo `['auditor', 'supervisor'].includes(rol.role_name)`.
 
-```ts
-return user?.roles?.some((role) =>
-  ['auditor', 'supervisor'].includes(role.role_name)
-) ?? false;
+## 7. ¿Cómo consultar los usuarios, roles y contraseñas?
+
+**Desde la API (admin):**
+
+```bash
+curl -i http://localhost:3000/users -H "Authorization: Bearer $ADMIN_TOKEN"
+curl -i http://localhost:3000/roles -H "Authorization: Bearer $ADMIN_TOKEN"
 ```
 
-**Recomendación para el examen:** mira las rutas del enunciado, encuentra el `@Can(...)` en el controller y cambia solo el método correspondiente de la Policy. No modifiques entidades ni migraciones para agregar un permiso a un rol existente.
+**Desde PostgreSQL:** estos comandos se ejecutan en la carpeta donde está `compose.yaml`.
 
----
+```bash
+docker compose exec db psql -U estudiante -d usuarios_roles -c \
+"SELECT u.id,u.email,u.is_active,COALESCE(string_agg(r.role_name, ', ' ORDER BY r.role_name),'Sin roles') AS roles FROM users u LEFT JOIN users_roles ur ON ur.user_id=u.id LEFT JOIN roles r ON r.id=ur.role_id GROUP BY u.id,u.email,u.is_active ORDER BY u.email;"
+```
 
-## 10. Errores y respuestas HTTP que conviene recordar
+```bash
+docker compose exec db psql -U estudiante -d usuarios_roles -c \
+"SELECT role_name, description FROM roles ORDER BY role_name;"
+```
 
-| Respuesta | Significado |
+**Las contraseñas originales NO se pueden consultar**: la tabla `users.password` guarda hashes scrypt, no contraseñas en texto. El admin inicial usa la clave de demostración documentada arriba. Los demás usuarios usan las claves que estableciste al registrarlos. **Nunca devuelvas el campo `password` desde `/users` ni `/users/me`.**
+
+## 8. Pruebas para distinguir autenticación y permisos
+
+| Situación | Código esperado |
 |---|---|
-| `200` | Consulta, asignación o inicio de sesión exitoso |
-| `201` | Usuario o rol creado |
-| `204` | Logout exitoso, sin contenido |
-| `400` | Datos inválidos o roles no existentes |
-| `401` | Token faltante, vencido o inválido / credenciales incorrectas en login |
-| `403` | Token válido, pero la Policy no permite esa acción |
-| `409` | Correo o nombre de rol repetido |
-| `423` | Usuario desactivado al iniciar sesión |
+| Sin token al consultar `GET /users` | 401 |
+| Usuario normal con token válido al consultar `GET /users` | 403 |
+| Admin con token válido al consultar `GET /users` | 200 |
+| Crear un rol nuevo como admin | 201 |
+| Repetir el nombre del rol | 409 |
+| UUID de usuario inexistente en asignación | 404 |
+| Registrar email inválido | 400 |
+| Cerrar sesión con refresh válido | 204 |
 
-## 11. Guardar o retirar el ejercicio
+Si recibes 401 inesperadamente, recuerda que el `accessToken` dura **2 minutos** y debes volver a iniciar sesión. Los refresh tokens duran 7 días, pero se guardan en memoria y desaparecen al reiniciar NestJS.
 
-- Para conservar el ejercicio en el código, haz commit de los cambios en las Policies.
-- Para volver **solo a los permisos originales**, restaura los métodos `list()` de ambas Policies a `return false;` (manteniendo `before()` como está).
-- Para dejar **también la base totalmente limpia de práctica**, repite la sección 1. Esto borra los roles y usuarios creados, pero **no modifica automáticamente los archivos `.ts` de las Policies**.
-- **No vuelvas a ejecutar `npm run db:preparar` si el objetivo es quedarse solo con `admin`**, porque cargará nuevamente supervisor y cuentas de prueba.
+## 9. Volver al estado inicial: solo admin
 
-La base de datos se consulta en tu propio computador; no es un sitio web externo. No compartas `.env`, access tokens, refresh tokens ni hashes completos. En un sistema real cambiarías las credenciales de demostración antes de publicarlo.
+**Advertencia: el siguiente procedimiento BORRA todos los usuarios, roles y asignaciones que hayas creado en esa base local. No lo hagas si quieres conservar los datos de práctica.**
+
+Detén NestJS con **Control + C**. Después, en la raíz del proyecto:
+
+```bash
+docker compose down -v
+docker compose up -d --wait
+npm run db:preparar
+```
+
+**En esta versión final, `db:preparar` crea solamente el rol y usuario admin.** No añade cuentas de demostración extra.
+
+La base se reinicia, **pero el código de las Policies NO se restaura automáticamente**. Si habías modificado permisos en el ejercicio, revierte únicamente esos archivos a la versión original o vuelve a descargar la versión inicial.
+
+El script de prueba `scripts/usuarios_roles_probados.sql` usa una transacción con `ROLLBACK`: permite verificar usuarios y roles en SQL **sin conservar** el usuario de prueba. En cambio `npm run probar:api` crea un usuario y un rol de prueba que permanecen en la base; úsalo solo cuando quieras hacer esa verificación y no necesites tener inmediatamente solo el admin.
+
+## 10. Nota para entrega
+
+Los archivos `.env` y las claves JWT **no se publican**. El repositorio debe contener `.env.example`, las migraciones SQL y `scripts/usuarios_roles_probados.sql`. Esta guía es de apoyo para estudiar, no añade rutas ni requisitos al preparcial.

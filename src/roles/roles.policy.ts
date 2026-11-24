@@ -18,8 +18,7 @@ export class RolesPolicy implements PolicyBefore<User> {
   }
 
   list(_user: User | null): boolean {
-    // Ejercicio futuro: modifica este método para que auditor pueda consultar.
-    // Por ahora solo accede admin mediante before().
+    // Solo el administrador puede listar roles.
     return false;
   }
 }
